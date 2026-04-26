@@ -10,20 +10,44 @@ import pandas as pd
 SPREADSHEET_ID = "1a2HIZ_kO6FlSG6FWG11Nfr8QAX0WNQgUBCfqaNvveKo"
 TIMEZONE = pytz.timezone("America/Argentina/Buenos_Aires")
 
-CARGOS = [
-    "PRESIDENTE",
-    "VICEPRESIDENTE",
-    "SECRETARIO",
-    "TESORERO",
-    "CAPITÁN DE RUTA",
-    "CAPELLÁN",
-    "FIDEICOMISARIO 1",
-    "FIDEICOMISARIO 2",
-    "GUARDIÁN DE MEMBRESÍA",
-    "SARGENTO DE ARMAS",
-]
-
-CARGOS_OBLIGATORIOS = ["PRESIDENTE", "VICEPRESIDENTE", "SECRETARIO", "TESORERO"]
+ORGANIZACIONES = {
+    "Widows Sons GCA": {
+        "titulo": "🏍️ Widows Sons Grand Chapter of Argentina",
+        "subtitulo": "Sistema de Elecciones 2025/2026",
+        "prefix": "WS",
+        "cargos": [
+            "PRESIDENTE",
+            "VICEPRESIDENTE",
+            "SECRETARIO",
+            "TESORERO",
+            "CAPITÁN DE RUTA",
+            "CAPELLÁN",
+            "FIDEICOMISARIO 1",
+            "FIDEICOMISARIO 2",
+            "GUARDIÁN DE MEMBRESÍA",
+            "SARGENTO DE ARMAS",
+        ],
+        "cargos_obligatorios": ["PRESIDENTE", "VICEPRESIDENTE", "SECRETARIO", "TESORERO"],
+    },
+    "Germania N° 19": {
+        "titulo": "⚒️ R∴ L∴ Germania N° 19",
+        "subtitulo": "Sistema de Elecciones — Rito Escocés Antiguo y Aceptado",
+        "prefix": "G19",
+        "cargos": [
+            "VENERABLE MAESTRO",
+            "PRIMER VIGILANTE",
+            "SEGUNDO VIGILANTE",
+            "ORADOR",
+            "TESORERO",
+            "HOSPITALARIO",
+            "MAESTRO DE CEREMONIAS",
+            "EXPERTO",
+            "GUARDA TEMPLO INTERIOR",
+            "GUARDA TEMPLO EXTERIOR",
+        ],
+        "cargos_obligatorios": ["VENERABLE MAESTRO", "PRIMER VIGILANTE", "SEGUNDO VIGILANTE", "ORADOR"],
+    },
+}
 
 # ── CONEXIÓN A GOOGLE SHEETS ───────────────────────────────────────
 @st.cache_resource
@@ -50,63 +74,66 @@ def get_sheet(nombre):
         })
         return ws
 
-def get_config():
+def get_config(prefix):
     ss = conectar_sheets()
+    nombre = f"CONFIG_{prefix}"
+    cargos = ORGANIZACIONES[[k for k in ORGANIZACIONES if ORGANIZACIONES[k]["prefix"] == prefix][0]]["cargos"]
     try:
-        ws = ss.worksheet("CONFIG")
+        ws = ss.worksheet(nombre)
     except gspread.WorksheetNotFound:
-        ws = ss.add_worksheet(title="CONFIG", rows=20, cols=2)
+        ws = ss.add_worksheet(title=nombre, rows=20, cols=2)
         ws.append_row(["CARGO", "ESTADO"])
-        for c in CARGOS:
+        for c in cargos:
             ws.append_row([c, "CERRADO"])
     return ws
 
 # ── LÓGICA DE VOTACIÓN ─────────────────────────────────────────────
-def get_cargo_activo():
-    ws = get_config()
+def get_cargo_activo(prefix):
+    ws = get_config(prefix)
     datos = ws.get_all_values()
     for fila in datos[1:]:
         if len(fila) >= 2 and fila[1] == "ABIERTO":
             return fila[0]
     return None
 
-def abrir_cargo(cargo):
-    ws = get_config()
+def abrir_cargo(prefix, cargo):
+    ws = get_config(prefix)
     datos = ws.get_all_values()
     for i, fila in enumerate(datos[1:], start=2):
         if len(fila) >= 1:
             ws.update_cell(i, 2, "ABIERTO" if fila[0] == cargo else "CERRADO")
-    get_sheet(cargo)  # Asegura que la hoja existe
+    get_sheet(f"{prefix}_{cargo}")
 
-def cerrar_cargo(cargo):
-    ws = get_config()
+def cerrar_cargo(prefix, cargo):
+    ws = get_config(prefix)
     datos = ws.get_all_values()
     for i, fila in enumerate(datos[1:], start=2):
         if len(fila) >= 1 and fila[0] == cargo:
             ws.update_cell(i, 2, "CERRADO")
 
-def resetear_cargo(cargo):
-    ws = get_sheet(cargo)
+def resetear_cargo(prefix, cargo):
+    nombre_hoja = f"{prefix}_{cargo}"
+    ws = get_sheet(nombre_hoja)
     n_filas = ws.row_count
     if n_filas > 1:
         ws.delete_rows(2, n_filas)
-    abrir_cargo(cargo)
+    abrir_cargo(prefix, cargo)
 
-def ya_voto(cargo, votante):
-    ws = get_sheet(cargo)
+def ya_voto(prefix, cargo, votante):
+    ws = get_sheet(f"{prefix}_{cargo}")
     datos = ws.get_all_values()
     for fila in datos[1:]:
         if fila and fila[0].strip().lower() == votante.strip().lower():
             return True
     return False
 
-def registrar_voto(cargo, votante, candidato):
-    ws = get_sheet(cargo)
+def registrar_voto(prefix, cargo, votante, candidato):
+    ws = get_sheet(f"{prefix}_{cargo}")
     ts = datetime.now(TIMEZONE).strftime("%d/%m/%Y %H:%M:%S")
     ws.append_row([votante.strip(), candidato.strip(), ts])
 
-def get_resultados(cargo):
-    ws = get_sheet(cargo)
+def get_resultados(prefix, cargo):
+    ws = get_sheet(f"{prefix}_{cargo}")
     datos = ws.get_all_values()
     conteo = {}
     for fila in datos[1:]:
@@ -117,26 +144,25 @@ def get_resultados(cargo):
     ordenado = sorted(conteo.items(), key=lambda x: x[1], reverse=True)
     return ordenado, total
 
-def get_votantes(cargo):
-    ws = get_sheet(cargo)
+def get_votantes(prefix, cargo):
+    ws = get_sheet(f"{prefix}_{cargo}")
     datos = ws.get_all_values()
     return [fila[0] for fila in datos[1:] if fila and fila[0]]
 
 # ── UI ─────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="WS GCA — Elecciones",
-    page_icon="🏍️",
+    page_title="Sistema de Elecciones",
+    page_icon="⚒️",
     layout="centered"
 )
 
-# CSS personalizado
 st.markdown("""
 <style>
     .main-title { font-size: 1.4rem; font-weight: 600; margin-bottom: 0; }
     .sub-title { font-size: 0.9rem; color: #888; margin-bottom: 1.5rem; }
-    .cargo-activo { 
-        background: #1a1a2e; color: white; 
-        padding: 1rem 1.5rem; border-radius: 10px; 
+    .cargo-activo {
+        background: #1a1a2e; color: white;
+        padding: 1rem 1.5rem; border-radius: 10px;
         text-align: center; margin-bottom: 1.5rem;
     }
     .cargo-activo h2 { font-size: 1.4rem; margin: 0; }
@@ -151,20 +177,37 @@ st.markdown("""
         padding: 0.75rem 1rem; border-radius: 8px;
         color: #856404; margin-top: 1rem;
     }
+    .org-selector {
+        background: #f8f8f8;
+        border-radius: 10px;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-title">🏍️ Widows Sons GCA</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Sistema de Elecciones 2025/2026</div>', unsafe_allow_html=True)
+# ── SELECTOR DE ORGANIZACIÓN ───────────────────────────────────────
+org_nombre = st.selectbox(
+    "Seleccioná la organización",
+    list(ORGANIZACIONES.keys()),
+    key="org_selector"
+)
 
-# Password de administrador
+org = ORGANIZACIONES[org_nombre]
+prefix = org["prefix"]
+cargos = org["cargos"]
+cargos_obligatorios = org["cargos_obligatorios"]
+
+st.markdown(f'<div class="main-title">{org["titulo"]}</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="sub-title">{org["subtitulo"]}</div>', unsafe_allow_html=True)
+
 ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "wsgca2025")
 
 tab_votar, tab_admin, tab_resultados = st.tabs(["🗳️ Votar", "⚙️ Administrar", "📊 Resultados"])
 
 # ── TAB VOTAR ──────────────────────────────────────────────────────
 with tab_votar:
-    cargo_activo = get_cargo_activo()
+    cargo_activo = get_cargo_activo(prefix)
 
     if cargo_activo:
         st.markdown(f"""
@@ -180,7 +223,7 @@ with tab_votar:
                 f"¿A quién votás para {cargo_activo}?",
                 placeholder="Escribí el nombre completo del candidato"
             )
-            if cargo_activo not in CARGOS_OBLIGATORIOS:
+            if cargo_activo not in cargos_obligatorios:
                 abstencion = st.checkbox("Me abstengo / voto en blanco")
             else:
                 abstencion = False
@@ -192,11 +235,11 @@ with tab_votar:
                     st.error("Escribí tu nombre completo.")
                 elif not candidato and not abstencion:
                     st.error("Escribí el nombre del candidato o marcá abstención.")
-                elif ya_voto(cargo_activo, votante):
+                elif ya_voto(prefix, cargo_activo, votante):
                     st.error("Ya registraste tu voto para este cargo.")
                 else:
                     voto_final = "ABSTENCIÓN" if abstencion else candidato
-                    registrar_voto(cargo_activo, votante, voto_final)
+                    registrar_voto(prefix, cargo_activo, votante, voto_final)
                     st.success(f"✅ Voto registrado correctamente para {cargo_activo}.")
     else:
         st.markdown("""
@@ -211,19 +254,19 @@ with tab_admin:
     pwd = st.text_input("Contraseña de administrador", type="password", key="admin_pwd")
 
     if pwd == ADMIN_PASSWORD:
-        cargo_activo_admin = get_cargo_activo()
+        cargo_activo_admin = get_cargo_activo(prefix)
 
         if cargo_activo_admin:
             st.info(f"Cargo actualmente abierto: **{cargo_activo_admin}**")
             col1, col2 = st.columns(2)
             with col1:
                 if st.button(f"🔒 Cerrar {cargo_activo_admin}", use_container_width=True):
-                    cerrar_cargo(cargo_activo_admin)
+                    cerrar_cargo(prefix, cargo_activo_admin)
                     st.success(f"Cargo {cargo_activo_admin} cerrado.")
                     st.rerun()
             with col2:
                 if st.button(f"🔄 Resetear {cargo_activo_admin}", use_container_width=True):
-                    resetear_cargo(cargo_activo_admin)
+                    resetear_cargo(prefix, cargo_activo_admin)
                     st.success(f"Votos de {cargo_activo_admin} reseteados. Cargo reabierto.")
                     st.rerun()
         else:
@@ -232,18 +275,18 @@ with tab_admin:
         st.divider()
         st.markdown("**Abrir cargo para votación:**")
 
-        for i, cargo in enumerate(CARGOS):
+        for i, cargo in enumerate(cargos):
             col1, col2, col3 = st.columns([3, 1, 1])
             with col1:
                 st.markdown(f"`{i+1:02d}` **{cargo}**")
             with col2:
-                if st.button("Abrir", key=f"abrir_{i}", use_container_width=True):
-                    abrir_cargo(cargo)
+                if st.button("Abrir", key=f"abrir_{prefix}_{i}", use_container_width=True):
+                    abrir_cargo(prefix, cargo)
                     st.success(f"{cargo} abierto.")
                     st.rerun()
             with col3:
-                if st.button("Reset", key=f"reset_{i}", use_container_width=True):
-                    resetear_cargo(cargo)
+                if st.button("Reset", key=f"reset_{prefix}_{i}", use_container_width=True):
+                    resetear_cargo(prefix, cargo)
                     st.success(f"{cargo} reseteado.")
                     st.rerun()
     elif pwd:
@@ -254,11 +297,11 @@ with tab_resultados:
     pwd_res = st.text_input("Contraseña para ver resultados", type="password", key="res_pwd")
 
     if pwd_res == ADMIN_PASSWORD:
-        cargo_sel = st.selectbox("Seleccioná un cargo", CARGOS)
+        cargo_sel = st.selectbox("Seleccioná un cargo", cargos)
 
         if st.button("Ver resultados", use_container_width=True):
-            resultados, total = get_resultados(cargo_sel)
-            votantes = get_votantes(cargo_sel)
+            resultados, total = get_resultados(prefix, cargo_sel)
+            votantes = get_votantes(prefix, cargo_sel)
 
             st.markdown(f"**Total de votos:** {total}")
 
@@ -270,11 +313,10 @@ with tab_resultados:
                     label = f"{'🥇 ' if i == 0 else ''}{candidato}"
                     st.progress(pct / 100, text=f"{label} — {votos} voto{'s' if votos != 1 else ''} ({pct}%)")
 
-                # Detectar empate
                 if len(resultados) >= 2 and resultados[0][1] == resultados[1][1]:
                     st.markdown(f"""
                     <div class="empate-alert">
-                        ⚠️ <strong>Empate detectado</strong> entre <strong>{resultados[0][0]}</strong> y 
+                        ⚠️ <strong>Empate detectado</strong> entre <strong>{resultados[0][0]}</strong> y
                         <strong>{resultados[1][0]}</strong> con {resultados[0][1]} votos cada uno.<br>
                         Usá el botón "Reset" en Administrar para hacer un ballotage.
                     </div>
@@ -283,7 +325,7 @@ with tab_resultados:
                 st.divider()
                 st.markdown("**Detalle de votos:**")
                 df = pd.DataFrame(resultados, columns=["Candidato", "Votos"])
-                df["%" ] = df["Votos"].apply(lambda v: f"{round(v/total*100)}%" if total > 0 else "0%")
+                df["%"] = df["Votos"].apply(lambda v: f"{round(v/total*100)}%" if total > 0 else "0%")
                 st.dataframe(df, use_container_width=True, hide_index=True)
 
                 st.divider()
